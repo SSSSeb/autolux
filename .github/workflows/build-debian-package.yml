@@ -24,7 +24,7 @@ jobs:
           apt-get install -y dpkg-dev build-essential
       - name: Build Debian package
         run: |
-	  make deb_pkg/
+          make deb_pkg
       - name: Upload Debian package as artifact
         uses: actions/upload-artifact@v3
         with:
