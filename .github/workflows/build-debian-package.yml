@@ -1,0 +1,32 @@
+name: Build Debian Package
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: debian-latest
+
+    container:
+      image: debian:stable-slim
+      options: --user root
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Prepare environment
+        run: |
+          apt-get update
+          apt-get install -y dpkg-dev build-essential
+      - name: Build Debian package
+        run: |
+	  make deb_pkg/
+      - name: Upload Debian package as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: debian-package
+          path: build/*.deb
