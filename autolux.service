@@ -1,0 +1,14 @@
+[Unit]
+Description=automatic brightness adjustment service
+After=multi-user.target
+
+[Service]
+ExecStart=/usr/local/bin/autolux
+User=root
+WorkingDirectory=/var/lib/autolux
+
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

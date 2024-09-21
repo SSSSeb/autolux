@@ -1,0 +1,147 @@
+#!/bin/bash
+
+# check we are root
+if [ "$EUID" -ne 0 ]
+  then echo "please run as root"
+  exit 1
+fi
+
+AUTOLUX_HOME=/var/lib/light_tuner
+
+create_service_store() {
+    #we store data into AUTOLUX_HOME
+    mkdir -p $AUTOLUX_HOME
+    chown -R root:root $AUTOLUX_HOME 
+    chmod 700 $AUTOLUX_HOME
+}
+
+# check if dependencies are installed
+check_dependencies() {
+    local dependencies=("xrandr" "bc" "ddcutil" "brightnessctl")
+    for dep in "${dependencies[@]}"; do
+        if ! command -v "$dep" &> /dev/null; then
+            echo "error: $dep is missing."
+            exit 1
+        fi
+    done
+}
+
+# initialize min and max light values if not present
+initialize_light_files() {
+    [ ! -f "$min_file" ] && echo "$light" > "$min_file"
+    [ ! -f "$max_file" ] && echo "$light" > "$max_file"
+}
+
+# update min and max light values
+update_light_values() {
+    min=$(<"$min_file")
+    max=$(<"$max_file")
+
+    if (( light < min )); then
+        echo "$light" > "$min_file"
+        min=$light
+    fi
+
+    if (( light > max )); then
+        echo "$light" > "$max_file"
+        max=$light
+    fi
+}
+
+# calculate brightness percentage based on light readings
+calculate_brightness_percentage() {
+    if (( max == min )); then
+        cur=1
+    else
+        cur=$(bc <<< "scale=2; ($light - $min) / ($max - $min)")
+    fi
+
+    # Ensure brightness is not below a threshold
+    (( $(bc <<< "$cur < 0.01") )) && cur=0.01
+    percent=$(bc <<< "scale=0; $cur * 100 / 1")
+}
+
+# set brightness using brightnessctl for backlight devices
+set_backlight_brightness() {
+    echo "looking for backlight devices..."
+    local backlight_devices
+    backlight_devices=($(brightnessctl --list | grep -A 2 "class 'backlight'" | awk '/Device/{gsub(/'\''/, "", $2); print $2}'))
+
+    for backlight_dev in "${backlight_devices[@]}"; do
+        echo "setting brightness to ${percent}% for $backlight_dev"
+        brightnessctl -d "$backlight_dev" s "${percent}%"
+        ((count++))
+    done
+}
+
+# Set brightness using ddcutil for DDC capable devices
+set_ddc_brightness() {
+    echo "tuning light on DDC capable devices..."
+    local ddc_devices
+    ddc_devices=($(ddcutil detect --verbose | grep -A 2 'Display' | grep 'I2C bus' | awk -F'/' '{print $3}' | sed 's/i2c-//'))
+
+    for i2c_num in "${ddc_devices[@]}"; do
+        echo "setting brightness to ${percent}% for I2C bus $i2c_num"
+        ddcutil setvcp 10 "$percent" --bus "$i2c_num"
+        ((count++))
+    done
+}
+
+last_brightness=0
+
+# Main script execution
+main() {
+
+    while true
+    do
+        # Variables
+        min_file=$AUTOLUX_HOME/min_light
+        max_file=$AUTOLUX_HOME/max_light
+        
+        # create service store
+        create_service_store
+        
+        # check dependencies
+        check_dependencies
+
+        # list available monitors
+        monitors=($(xrandr --listmonitors | awk '{if (NR > 1) print $4}'))
+        nb_monitors=${#monitors[@]}
+        echo "$nb_monitors monitors found"
+
+        # check light sensors
+        light=$(awk '{ sum += $1 } END { print sum }' /sys/bus/iio/devices/iio:device*/in_illuminance_raw)
+
+        if [ -z "$light" ]; then
+            echo "error: no light sensor data in /sys/bus/iio/devices/iio:device*/in_illuminance_raw"
+            exit 1
+        fi
+        
+        # initialize and update light values
+        initialize_light_files
+        update_light_values
+
+        # calculate brightness percentage
+        calculate_brightness_percentage
+
+        # apply brightness settings if new settings is not within 3% of the last one
+
+        if (( last_brightness == 0 || percent < last_brightness - 3 || percent > last_brightness + 3 )); then
+            echo "setting brightness to ${percent}%"
+            last_brightness=$percent
+            echo "tuning light on $nb_monitors monitors"
+            count=0
+            set_backlight_brightness
+            set_ddc_brightness
+            echo "tuned light on $count monitors"
+        else
+            echo "brightness already close enough to ${percent}%, waiting..."
+        fi
+        
+        echo "waiting a minute..."
+        sleep 60
+    done
+}
+
+# run Forest run
+main

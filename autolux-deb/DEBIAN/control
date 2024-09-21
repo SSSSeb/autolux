@@ -1,0 +1,8 @@
+Package: autolux
+Version: 0.0.42
+Section: utils
+Priority: optional
+Architecture: all
+Essential: no
+Maintainer: ymmv42
+Description: autolux light adjustment service

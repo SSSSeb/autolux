@@ -1,0 +1,12 @@
+#!/bin/bash
+
+if [ ! -d "/var/lib/autolux" ]; then
+   mkdir -p /var/lib/autolux
+   chown root:root /var/lib/autolux
+   chmod 700 /var/lib/autolux
+fi
+
+# Restart the systemd daemon and enable the service
+systemctl daemon-reload
+systemctl enable autolux.service
+systemctl start autolux.service
